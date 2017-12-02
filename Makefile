@@ -17,7 +17,7 @@ all: $(TESTS)
 	$(SYN) -q -p "synth_ice40 -blif $@" $<
 
 %.txt: %.blif
-	$(PNR) -p $(PCF) -o $@ $<
+	$(PNR) -d 8k -p $(PCF) -o $@ $<
 
 %.bin: %.txt
 	$(PACK) $< $@

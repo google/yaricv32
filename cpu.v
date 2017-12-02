@@ -17,10 +17,12 @@
 module registers(
   input clk,
   input write_enable,
-  input [REG_WIDTH-1 : 0] read_offset,
-  input [REG_WIDTH-1 : 0] write_offset,
-  input [WIDTH-1 : 0] data_in,
-  output [WIDTH-1 : 0] data_out);
+  input [REG_WIDTH-1 : 0] rs1_offset,
+  input [REG_WIDTH-1 : 0] rs2_offset,
+  input [REG_WIDTH-1 : 0] rd_offset,
+  input [WIDTH-1 : 0] rd_data_in,
+  output [WIDTH-1 : 0] rs1_data_out,
+  output [WIDTH-1 : 0] rs2_data_out);
 
   parameter REG_WIDTH = 5;
   parameter WIDTH = 32;
@@ -31,17 +33,19 @@ module registers(
 
   initial begin
 `ifdef IVERILOG
+      regs[0] = 0;
       regs[STACK_REG_IDX] = STACK_START;
       regs[8] = 104;
-      regs[15] = 7;
+      regs[15] = 0;
 `endif
   end
 
-  assign data_out = regs[read_offset];
+  assign rs1_data_out = regs[rs1_offset];
+  assign rs2_data_out = regs[rs2_offset];
 
   always @(posedge clk) begin
-    if (write_enable && (write_offset != 0)) begin
-     regs[write_offset] <= data_in;
+    if (write_enable && (rd_offset != 0)) begin
+     regs[rd_offset] <= rd_data_in;
     end
   end
 
@@ -66,6 +70,8 @@ module ram(
     mem[4] = 32'h038000ef;
     mem[8] = 32'hfef42623;
     mem[12] = 32'hfec42583;
+    mem[16] = 32'h00078e63;
+    mem[44] = 32'h0;
     mem[60] = 32'h00400137;
     mem[64] = 32'h00008067;
 `endif
@@ -85,13 +91,19 @@ module alu(
   input [WIDTH-1 : 0] a,
   input [WIDTH - 1 : 0] b,
   input sub_enable,
-  output [WIDTH - 1 : 0] res);
+  output [WIDTH - 1 : 0] res,
+  output eq,
+  output bgeu,
+  output bge);
 
   parameter WIDTH = 32;
   wire [WIDTH - 1 : 0] carry;
   wire [WIDTH - 1 : 0] b_in;
 
   assign b_in = sub_enable ? ~(b) : b;
+  assign eq = a == b;
+  assign bgeu = a >= b;
+  assign bge = $signed(a) >= $signed(b);
 
   genvar i;
   generate
@@ -107,6 +119,7 @@ module alu(
   endgenerate
 
 endmodule
+
 module cpu(
   input clk,
   output uart_tx_wire);
@@ -114,8 +127,8 @@ module cpu(
   localparam WIDTH = 32;
   localparam INSTR_WIDTH = WIDTH;
   localparam REG_COUNT = 32;
-  localparam RAM_WIDTH = 8;
-  localparam MEMORY_SIZE = 1 << RAM_WIDTH; //4k
+  localparam RAM_WIDTH = 10;
+  localparam MEMORY_SIZE = 1 << RAM_WIDTH; //1024*32bits=4kb
   localparam STACK_REG_IDX = 2;
   localparam STACK_START = MEMORY_SIZE;
   localparam PC_INC = $clog2(INSTR_WIDTH) - 1;
@@ -145,6 +158,12 @@ module cpu(
   localparam JTYPE_IMM1 = JTYPE_IMM11 + 1;
   localparam JTYPE_IMM10 = JTYPE_IMM1 + 9;
   localparam JTYPE_IMM20 = JTYPE_IMM10 + 1;
+  localparam BTYPE_IMM11 = RD_START;
+  localparam BTYPE_IMM1 = RD_START + 1;
+  localparam BTYPE_IMM4 = BTYPE_IMM1 + 3;
+  localparam BTYPE_IMM5 = RS2_END + 1;
+  localparam BTYPE_IMM10 = BTYPE_IMM5 + 5;
+  localparam BTYPE_IMM12 = BTYPE_IMM10 + 1;
 
   //Load instructions
   localparam LOAD_OPCODE = 7'b0000011;
@@ -168,6 +187,15 @@ module cpu(
   localparam JAL_OPCODE = 7'b1101111;
   localparam JALR_OPCODE = 7'b1100111;
 
+  //Branch instructions
+  localparam BRANCH_OPCODE = 7'b1100011;
+  localparam BEQ_FUNCT3 = 3'b000;
+  localparam BNE_FUNCT3 = 3'b001;
+  localparam BLT_FUNCT3 = 3'b100;
+  localparam BGE_FUNCT3 = 3'b101;
+  localparam BLTU_FUNCT3 = 3'b110;
+  localparam BGEU_FUNCT3 = 3'b111;
+
   localparam STAGE_T0 = 0;
   localparam STAGE_T1 = 1;
   localparam STAGE_T2 = 2;
@@ -176,8 +204,8 @@ module cpu(
   localparam STAGE_COUNT = STAGE_T4 + 1;
   localparam STAGE_WIDTH = $clog2(STAGE_COUNT);
 
-  localparam rst_size = 5;
-  localparam rst_max = (1 << 5) - 1;
+  localparam rst_size = 3;
+  localparam rst_max = (1 << rst_size) - 1;
 
   reg [rst_size : 0] rst_cnt = 0;
   reg rstn = 0;
@@ -187,9 +215,9 @@ module cpu(
   reg [WIDTH-1 : 0] pc_reg;           //Program counter
 
   reg regs_wr_enable;
-  reg [REG_WIDTH-1 : 0] regs_rd_offset, regs_wr_offset;
-  reg [WIDTH-1 : 0] regs_data_in;
-  wire [WIDTH-1 : 0] regs_data_out;
+  reg [REG_WIDTH-1 : 0] regs_rs1_offset, regs_rs2_offset, regs_rd_offset;
+  reg [WIDTH-1 : 0] regs_rd_in;
+  wire [WIDTH-1 : 0] regs_rs1_out, regs_rs2_out;
   registers #(
     .WIDTH(WIDTH),
     .REG_WIDTH(REG_WIDTH),
@@ -197,19 +225,25 @@ module cpu(
     .STACK_START(STACK_START)) cpu_regs (
     .clk(clk),
     .write_enable(regs_wr_enable),
-    .read_offset(regs_rd_offset),
-    .write_offset(regs_wr_offset),
-    .data_in(regs_data_in),
-    .data_out(regs_data_out));
+    .rs1_offset(regs_rs1_offset),
+    .rs2_offset(regs_rs2_offset),
+    .rd_offset(regs_rd_offset),
+    .rd_data_in(regs_rd_in),
+    .rs1_data_out(regs_rs1_out),
+    .rs2_data_out(regs_rs2_out));
 
   reg alu_op;
   reg [WIDTH-1 : 0] alu_a, alu_b;
   wire [WIDTH-1 : 0] alu_res;
+  wire alu_eq, alu_bgeu, alu_bge;
   alu #(.WIDTH(WIDTH)) cpu_alu(
     .a(alu_a),
     .b(alu_b),
     .sub_enable(alu_op),
-    .res(alu_res));
+    .res(alu_res),
+    .eq(alu_eq),
+    .bgeu(alu_bgeu),
+    .bge(alu_bge));
 
   reg ram_wr_enable;
   reg [RAM_WIDTH-1 : 0] ram_rd_addr, ram_wr_addr;
@@ -232,6 +266,7 @@ module cpu(
   wire [WIDTH-1 : 0] stype_imm;
   wire [WIDTH-1 : 0] utype_imm;
   wire [WIDTH-1 : 0] jtype_imm;
+  wire [WIDTH-1 : 0] btype_imm;
 
   assign uart_tx_wire = itype_imm[0];
 
@@ -249,15 +284,18 @@ module cpu(
   assign rs1 = ir[RS1_END : RS1_START];
   assign rs2 = ir[RS2_END : RS2_START];
 
-  assign itype_imm = {ir[ITYPE_IMM_END] ? {20{1'b1}} : 20'b0, ir[ITYPE_IMM_END : ITYPE_IMM_START]};
+  assign itype_imm = {{20{ir[ITYPE_IMM_END]}}, ir[ITYPE_IMM_END : ITYPE_IMM_START]};
 
-  assign stype_imm = {ir[STYPE_IMM2_END] ? {20{1'b1}} : 20'b0,
+  assign stype_imm = {{20{ir[STYPE_IMM2_END]}},
     {ir[STYPE_IMM2_END : STYPE_IMM2_START], ir[STYPE_IMM1_END : STYPE_IMM1_START]}};
 
   assign utype_imm = {ir[UTYPE_IMM_END : UTYPE_IMM_START], 12'b0};
 
-  assign jtype_imm = {ir[JTYPE_IMM20] ? {12{1'b1}} : 12'b0, {ir[JTYPE_IMM20],
+  assign jtype_imm = {{12{ir[JTYPE_IMM20]}}, {ir[JTYPE_IMM20],
     ir[JTYPE_IMM19 : JTYPE_IMM12], ir[JTYPE_IMM11], ir[JTYPE_IMM10 : JTYPE_IMM1], 1'b0}};
+
+  assign btype_imm = {{20{ir[BTYPE_IMM12]}}, {ir[BTYPE_IMM12],
+    ir[BTYPE_IMM11], ir[BTYPE_IMM10 : BTYPE_IMM5], ir[BTYPE_IMM4 : BTYPE_IMM1], 1'b0}};
 
   always @(posedge clk) begin
     if (rstn) begin
@@ -275,22 +313,31 @@ module cpu(
 
         STAGE_T1: begin
           case (opcode)
+
+            BRANCH_OPCODE: begin
+              regs_rd_in <= alu_res;
+              alu_b <= btype_imm;
+              regs_rs1_offset <= rs1;
+              regs_rs2_offset <= rs2;
+              stage_reg <= STAGE_T2;
+            end
+
             LOAD_OPCODE: begin
-              regs_rd_offset <= rs1;
+              regs_rs1_offset <= rs1;
               pc_reg <= alu_res;
               stage_reg <= STAGE_T2;
             end
 
             STORE_OPCODE: begin
-              regs_rd_offset <= rs1;
+              regs_rs1_offset <= rs1;
               pc_reg <= alu_res;
               stage_reg <= STAGE_T2;
             end
 
             LUI_OPCODE: begin
               regs_wr_enable <= 1;
-              regs_wr_offset <= rd;
-              regs_data_in <= utype_imm;
+              regs_rd_offset <= rd;
+              regs_rd_in <= utype_imm;
               pc_reg <= alu_res;
               ram_rd_addr <= alu_res;
               stage_reg <= STAGE_T0;
@@ -304,17 +351,17 @@ module cpu(
 
             JAL_OPCODE: begin
               regs_wr_enable <= 1;
-              regs_wr_offset <= rd;
-              regs_data_in <= alu_res;
+              regs_rd_offset <= rd;
+              regs_rd_in <= alu_res;
               alu_b <= jtype_imm;
               stage_reg <= STAGE_T2;
             end
 
             JALR_OPCODE: begin
               regs_wr_enable <= 1;
-              regs_wr_offset <= rd;
-              regs_data_in <= alu_res;
-              regs_rd_offset <= rs1;
+              regs_rd_offset <= rd;
+              regs_rd_in <= alu_res;
+              regs_rs1_offset <= rs1;
               stage_reg <= STAGE_T2;
             end
 
@@ -329,15 +376,22 @@ module cpu(
         STAGE_T2: begin
           case (opcode)
 
+            BRANCH_OPCODE: begin
+              ram_data_in <= alu_res;
+              alu_a <= regs_rs1_out;
+              alu_b <= regs_rs2_out;
+              stage_reg <= STAGE_T3;
+            end
+
             LOAD_OPCODE: begin
-              alu_a <= regs_data_out;
+              alu_a <= regs_rs1_out;
               alu_b <= itype_imm;
               alu_op <= 0;
               stage_reg <= STAGE_T3;
             end
 
             STORE_OPCODE: begin
-              alu_a <= regs_data_out;
+              alu_a <= regs_rs1_out;
               alu_b <= stype_imm;
               alu_op <= 0;
               stage_reg <= STAGE_T3;
@@ -346,8 +400,8 @@ module cpu(
             AUIPC_OPCODE: begin
               pc_reg <= ram_rd_addr;
               regs_wr_enable <= 1;
-              regs_wr_offset <= rd;
-              regs_data_in <= alu_res;
+              regs_rd_offset = rd;
+              regs_rd_in <= alu_res;
               stage_reg <= STAGE_T0;
             end
 
@@ -360,7 +414,7 @@ module cpu(
 
             JALR_OPCODE: begin
               regs_wr_enable <= 0;
-              alu_a <= regs_data_out;
+              alu_a <= regs_rs1_out;
               alu_b <= itype_imm;
               stage_reg <= STAGE_T3;
             end
@@ -371,6 +425,43 @@ module cpu(
         STAGE_T3: begin
           case (opcode)
 
+            BRANCH_OPCODE: begin
+              stage_reg <= STAGE_T0;
+              case (funct3)
+
+                BEQ_FUNCT3: begin
+                  pc_reg <= alu_eq ? ram_data_in : regs_rd_in;
+                  ram_rd_addr <= alu_eq ? ram_data_in : regs_rd_in;
+                end
+
+                BNE_FUNCT3: begin
+                  pc_reg <= !alu_eq ? ram_data_in : regs_rd_in;
+                  ram_rd_addr <= !alu_eq ? ram_data_in : regs_rd_in;
+                end
+
+                BGE_FUNCT3: begin
+                  pc_reg <= alu_bge ? ram_data_in : regs_rd_in;
+                  ram_rd_addr <= alu_bge ? ram_data_in : regs_rd_in;
+                end
+
+                BGEU_FUNCT3: begin
+                  pc_reg <= alu_bgeu ? ram_data_in : regs_rd_in;
+                  ram_rd_addr <= alu_bgeu ? ram_data_in : regs_rd_in;
+                end
+
+                BLT_FUNCT3: begin
+                  pc_reg <= !alu_bge ? ram_data_in : regs_rd_in;
+                  ram_rd_addr <= !alu_bge ? ram_data_in : regs_rd_in;
+                end
+
+                BLTU_FUNCT3: begin
+                  pc_reg <= !alu_bgeu ? ram_data_in : regs_rd_in;
+                  ram_rd_addr <= !alu_bgeu ? ram_data_in : regs_rd_in;
+                end
+
+              endcase
+            end
+
             LOAD_OPCODE: begin
               ram_rd_addr <= alu_res;
               stage_reg <= STAGE_T4;
@@ -378,7 +469,7 @@ module cpu(
 
             STORE_OPCODE: begin
               ram_wr_addr <= alu_res;
-              regs_rd_offset <= rs2;
+              regs_rs2_offset <= rs2;
               stage_reg <= STAGE_T4;
             end
 
@@ -395,30 +486,30 @@ module cpu(
           case (opcode)
 
             LOAD_OPCODE: begin
-              regs_wr_offset <= rd;
+              regs_rd_offset <= rd;
               regs_wr_enable <= 1;
               ram_rd_addr <= pc_reg;
               stage_reg <= STAGE_T0;
               case (funct3)
 
+                LW_FUNCT3: begin
+                  regs_rd_in  <= ram_data_out;
+                end
+
                 LB_FUNCT3: begin
-                   regs_data_in <= {ram_data_out[7] ? {24{1'b1}} : 24'b0, ram_data_out[7:0]};
+                  regs_rd_in <= {{24{ram_data_out[7]}}, ram_data_out[7:0]};
                 end
 
                 LH_FUNCT3: begin
-                  regs_data_in <= {ram_data_out[15] ? {16{1'b1}} : 16'b0, ram_data_out[15:0]};
-                end
-
-                LW_FUNCT3: begin
-                  regs_data_in <= ram_data_out;
+                  regs_rd_in <= {{16{ram_data_out[15]}}, ram_data_out[15:0]};
                 end
 
                 LBU_FUNCT3: begin
-                  regs_data_in <= {24'b0, (ram_data_out[7:0])};
+                  regs_rd_in <= {24'b0, (ram_data_out[7:0])};
                 end
 
                 LHU_FUNCT3: begin
-                  regs_data_in <= {16'b0, (ram_data_out[15:0])};
+                  regs_rd_in <= {16'b0, (ram_data_out[15:0])};
                 end
 
                 default: begin
@@ -434,15 +525,15 @@ module cpu(
               case (funct3)
 
                 SB_FUNCT3: begin
-                  ram_data_in[7:0] <= regs_data_out[7:0];
+                  ram_data_in[7:0] <= regs_rs2_out[7:0];
                 end
 
                 SH_FUNCT3: begin
-                  ram_data_in[15:0] <= regs_data_out[15:0];
+                  ram_data_in[15:0] <= regs_rs2_out[15:0];
                 end
 
                 SW_FUNCT3: begin
-                  ram_data_in <= regs_data_out;
+                  ram_data_in <= regs_rs2_out;
                 end
 
                 default: begin

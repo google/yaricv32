@@ -1,2 +1,2 @@
-set_io clk 21
-set_io uart_tx_wire 8
+set_io clk J3
+set_io uart_tx_wire B12
