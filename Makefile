@@ -23,7 +23,7 @@ all: $(TESTS)
 	$(PACK) $< $@
 
 %.vvp: %.v
-	$(COMP) -Wall -o $@ $<
+	$(COMP) -Wall -g2005 -o $@ $<
 
 clean:
 	rm -f *.vvp *.vcd *.blif *.bin *.txt

@@ -23,7 +23,7 @@ module top_test;
   wire uart_tx;
   always #2 clk = !clk;
   initial
-  # 250 $finish;
+  # 2500 $finish;
 
   top t(clk, uart_tx);
 
