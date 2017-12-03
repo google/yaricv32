@@ -110,7 +110,9 @@ module alu(
   input [WIDTH-1 : 0] a,
   input [WIDTH - 1 : 0] b,
   input sub_enable,
+  input arith_shift,
   input [2 : 0] op,
+  input [SHIFT_WIDTH-1 : 0] shamt,
   output [WIDTH - 1 : 0] res,
   output eq,
   output bgeu,
@@ -124,6 +126,9 @@ module alu(
   parameter XOR_OP = 3'b100;
   parameter OR_OP = 3'b110;
   parameter AND_OP = 3'b111;
+  parameter SL_OP = 3'b001;
+  parameter SR_OP = 3'b101;
+  localparam SHIFT_WIDTH = $clog2(WIDTH);
 
   wire [WIDTH - 1 : 0] carry, b_in, adder;
 
@@ -132,7 +137,9 @@ module alu(
   assign bgeu = a >= b;
   assign bge = $signed(a) >= $signed(b);
 
-  assign res = (op == ADD_OP) ? adder : (op == OR_OP) ? (a | b) : (op == XOR_OP) ? (a ^ b) : a & b;
+  assign res = (op == ADD_OP) ? adder : (op == OR_OP) ? (a | b) : (op == XOR_OP) ? (a ^ b) :
+               (op == SL_OP) ? (a << shamt) : ((op == SR_OP) && (arith_shift)) ? (a >>> shamt) :
+               (op == SR_OP) ? (a >> shamt) : a & b;
 
   genvar i;
   generate
@@ -234,7 +241,10 @@ module cpu(
   localparam XOR_FUNCT3 = 3'b100;
   localparam OR_FUNCT3 = 3'b110;
   localparam AND_FUNCT3 = 3'b111;
+  localparam SL_FUNCT3 = 3'b001;
+  localparam SR_FUNCT3 = 3'b101;
   localparam SUB_BIT = 30;
+  localparam ARITH_SHIFT_BIT = 30;
 
   localparam STAGE_T0 = 0;
   localparam STAGE_T1 = 1;
@@ -272,8 +282,9 @@ module cpu(
     .rs1_data_out(regs_rs1_out),
     .rs2_data_out(regs_rs2_out));
 
-  reg sub_enable;
+  reg sub_enable, alu_arith_shift;
   reg [2 : 0] alu_op;
+  reg [REG_WIDTH-1 : 0] alu_shamt;
   reg [WIDTH-1 : 0] alu_a, alu_b;
   wire [WIDTH-1 : 0] alu_res;
   wire alu_eq, alu_bgeu, alu_bge;
@@ -284,11 +295,15 @@ module cpu(
     .SLTU_OP(SLT_FUNCT3),
     .XOR_OP(XOR_FUNCT3),
     .OR_OP(OR_FUNCT3),
-    .AND_OP(ADD_FUNCT3)) cpu_alu(
+    .AND_OP(ADD_FUNCT3),
+    .SL_OP(SL_FUNCT3),
+    .SR_OP(SR_FUNCT3)) cpu_alu(
     .a(alu_a),
     .b(alu_b),
     .sub_enable(sub_enable),
+    .arith_shift(alu_arith_shift),
     .op(alu_op),
+    .shamt(alu_shamt),
     .res(alu_res),
     .eq(alu_eq),
     .bgeu(alu_bgeu),
@@ -430,9 +445,10 @@ module cpu(
 
             default: begin
 `ifdef IVERILOG
-              $display("Unsupported opcode!\n");
+              $display("Unsupported opcode: %d!\n", opcode);
 `endif
             end
+
           endcase
         end
 
@@ -444,6 +460,8 @@ module cpu(
               alu_b <= regs_rs2_out;
               alu_op <= funct3;
               sub_enable <= ir[SUB_BIT];
+              alu_arith_shift <= ir[ARITH_SHIFT_BIT];
+              alu_shamt <= regs_rs2_out[REG_WIDTH-1 : 0];
               stage_reg <= STAGE_T3;
             end
 
@@ -451,6 +469,8 @@ module cpu(
               alu_a <= regs_rs1_out;
               alu_b <= itype_imm;
               alu_op <= funct3;
+              alu_arith_shift <= ir[ARITH_SHIFT_BIT];
+              alu_shamt <= rs2;
               stage_reg <= STAGE_T3;
             end
 
@@ -553,6 +573,12 @@ module cpu(
                   ram_rd_addr <= !alu_bgeu ? ram_data_in : regs_rd_in;
                 end
 
+                default: begin
+`ifdef IVERILOG
+                  $display("Unsupported branch function: %d !\n", funct3);
+`endif
+                end
+
               endcase
             end
 
@@ -607,6 +633,9 @@ module cpu(
                 end
 
                 default: begin
+`ifdef IVERILOG
+                  $display("Unsupported load function: %d !\n", funct3);
+`endif
                 end
 
               endcase
@@ -631,7 +660,11 @@ module cpu(
                 end
 
                 default: begin
+`ifdef IVERILOG
+                  $display("Unsupported store function: %d !\n", funct3);
+`endif
                 end
+
               endcase
             end
 
