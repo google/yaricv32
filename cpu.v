@@ -234,6 +234,7 @@ module cpu(
   localparam XOR_FUNCT3 = 3'b100;
   localparam OR_FUNCT3 = 3'b110;
   localparam AND_FUNCT3 = 3'b111;
+  localparam SUB_BIT = 30;
 
   localparam STAGE_T0 = 0;
   localparam STAGE_T1 = 1;
@@ -442,6 +443,7 @@ module cpu(
               alu_a <= regs_rs1_out;
               alu_b <= regs_rs2_out;
               alu_op <= funct3;
+              sub_enable <= ir[SUB_BIT];
               stage_reg <= STAGE_T3;
             end
 
