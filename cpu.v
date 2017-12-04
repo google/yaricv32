@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+`include "uart-tx.v"
+
 module registers(
   input clk,
   input write_enable,
@@ -26,8 +28,6 @@ module registers(
 
   parameter REG_WIDTH = 5;
   parameter WIDTH = 32;
-  parameter STACK_REG_IDX = 2;
-  parameter STACK_START = 1 << 12;
   localparam REG_COUNT = 1 << REG_WIDTH;
   reg [WIDTH-1 : 0] regs [0 : REG_COUNT-1];
 
@@ -56,51 +56,56 @@ module registers(
 endmodule
 
 module ram(
+  input rst,
   input clk,
   input write_enable,
   input [ADDRESS_WIDTH-1 : 0] read_addr,
   input [ADDRESS_WIDTH-1 : 0] write_addr,
   input [WIDTH-1 : 0] data_in,
-  output [WIDTH-1 : 0] data_out);
+  output [WIDTH-1 : 0] data_out,
+  output uart_tx_wire);
 
   parameter ADDRESS_WIDTH = 12;
   parameter WIDTH = 32;
-  localparam MEMORY_SIZE = 1 << ADDRESS_WIDTH;
+  localparam MEMORY_SIZE = 1 << (ADDRESS_WIDTH - 1);
   localparam WORD_ALIGNMENT = $clog2(WIDTH / 8);
   localparam ALIGNED_WIDTH = ADDRESS_WIDTH - WORD_ALIGNMENT;
+  localparam IO_START = MEMORY_SIZE >> WORD_ALIGNMENT;
+  // UART TX IO mapping
+  // [31 : 16] unused, [15:8] tx data, [7 : 2] unused [1] uart tx ready flag, [0] uart tx start
+  localparam UART_BASE = IO_START + 1;
   reg [WIDTH-1 : 0] mem [0 : MEMORY_SIZE-1];
   wire [ALIGNED_WIDTH-1 : 0] read_addr_aligned, write_addr_aligned;
+  reg uart_start;
+  reg [7 : 0] uart_tx_buffer;
+  wire uart_ready;
 
-`ifdef IVERILOG
-
-  reg [WIDTH-1 : 0] tmp;
-  integer i, f;
   initial begin
-
-  for (i = 0; i < MEMORY_SIZE-1; i++) begin
-    mem[i] = 0;
+    uart_start = 0;
+    $readmemh("firmware.hex", mem);
   end
 
-  f = $fopen("firmware.dat", "rb");
-  i = $fread(mem, f);
-  $fclose(f);
-
-  for (i = 0; i < MEMORY_SIZE-1; i++) begin
-    tmp = {mem[i][7 : 0], mem[i][15 : 8], mem[i][23 : 16], mem[i][31 : 24]};
-    mem[i] = tmp;
-  end
-
-  end
-
-`endif
+  uarttx tx(
+    .rst(rst),
+    .clk(clk),
+    .tx_start(uart_start),
+    .tx_byte(uart_tx_buffer),
+    .tx(uart_tx_wire),
+    .tx_ready(uart_ready));
 
   assign read_addr_aligned = read_addr[ADDRESS_WIDTH-1 : WORD_ALIGNMENT];
   assign write_addr_aligned = write_addr[ADDRESS_WIDTH-1 : WORD_ALIGNMENT];
-  assign data_out = mem[read_addr_aligned];
+  assign data_out = (read_addr_aligned == UART_BASE) ?
+                    {16'b0, uart_tx_buffer, 6'b0, uart_ready, uart_start} : mem[read_addr_aligned];
 
   always @(posedge clk) begin
     if (write_enable) begin
-      mem[write_addr_aligned] <= data_in;
+      if (write_addr_aligned == UART_BASE) begin
+        uart_start <= data_in[0];
+        uart_tx_buffer <= data_in[15 : 8];
+      end else begin
+        mem[write_addr_aligned] <= data_in;
+      end
     end
   end
 
@@ -163,10 +168,7 @@ module cpu(
   localparam WIDTH = 32;
   localparam INSTR_WIDTH = WIDTH;
   localparam REG_COUNT = 32;
-  localparam RAM_WIDTH = 10;
-  localparam MEMORY_SIZE = 1 << RAM_WIDTH; //1024*32bits=4kb
-  localparam STACK_REG_IDX = 2;
-  localparam STACK_START = MEMORY_SIZE;
+  localparam RAM_WIDTH = 11;
   localparam PC_INC = $clog2(INSTR_WIDTH) - 1;
   localparam REG_WIDTH = $clog2(REG_COUNT);
   localparam OPCODE_START = 0;
@@ -270,9 +272,7 @@ module cpu(
   wire [WIDTH-1 : 0] regs_rs1_out, regs_rs2_out;
   registers #(
     .WIDTH(WIDTH),
-    .REG_WIDTH(REG_WIDTH),
-    .STACK_REG_IDX(STACK_REG_IDX),
-    .STACK_START(STACK_START)) cpu_regs (
+    .REG_WIDTH(REG_WIDTH)) cpu_regs (
     .clk(clk),
     .write_enable(regs_wr_enable),
     .rs1_offset(regs_rs1_offset),
@@ -313,13 +313,17 @@ module cpu(
   reg [RAM_WIDTH-1 : 0] ram_rd_addr, ram_wr_addr;
   reg [WIDTH-1 : 0] ram_data_in;
   wire [WIDTH-1 : 0] ram_data_out;
-  ram #(.WIDTH(WIDTH), .ADDRESS_WIDTH(RAM_WIDTH)) cpu_ram(
+  ram #(
+    .WIDTH(WIDTH),
+    .ADDRESS_WIDTH(RAM_WIDTH)) cpu_ram(
+    .rst(!rstn),
     .clk(clk),
     .write_enable(ram_wr_enable),
     .read_addr(ram_rd_addr),
     .write_addr(ram_wr_addr),
     .data_in(ram_data_in),
-    .data_out(ram_data_out));
+    .data_out(ram_data_out),
+    .uart_tx_wire(uart_tx_wire));
 
   wire [OPCODE_END : 0] opcode;
   wire [FUNCT3_WIDTH : 0] funct3;
@@ -331,8 +335,6 @@ module cpu(
   wire [WIDTH-1 : 0] utype_imm;
   wire [WIDTH-1 : 0] jtype_imm;
   wire [WIDTH-1 : 0] btype_imm;
-
-  assign uart_tx_wire = itype_imm[0];
 
   always @(posedge clk) begin
     if (rst_cnt != rst_max) begin

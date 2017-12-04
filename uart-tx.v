@@ -37,8 +37,8 @@ module uarttx(
   localparam STATE_WIDTH = $clog2(STATE_FINISH);
 
   parameter CLK_SPEED = 12000000; //Hz
-`ifdef IVERILOG_SIM
-  parameter BAUD_RATE = CLK_SPEED / 2;
+`ifdef IVERILOG
+  parameter BAUD_RATE = CLK_SPEED / 4;
 `else
   parameter BAUD_RATE = 19200;
 `endif
