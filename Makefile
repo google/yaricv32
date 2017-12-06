@@ -25,6 +25,9 @@ all: $(TESTS)
 %.vvp: %.v
 	$(COMP) -Wall -g2005 -o $@ $<
 
+flash: cpu.bin
+	$(PROG) -S $<$
+
 clean:
 	rm -f *.vvp *.vcd *.blif *.bin *.txt
 

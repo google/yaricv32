@@ -256,7 +256,7 @@ module cpu(
   localparam STAGE_COUNT = STAGE_T4 + 1;
   localparam STAGE_WIDTH = $clog2(STAGE_COUNT);
 
-  localparam rst_size = 3;
+  localparam rst_size = 5;
   localparam rst_max = (1 << rst_size) - 1;
 
   reg [rst_size : 0] rst_cnt = 0;
