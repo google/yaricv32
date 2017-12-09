@@ -14,152 +14,9 @@
  * limitations under the License.
  */
 
-`include "uart-tx.v"
-
-module registers(
-  input clk,
-  input write_enable,
-  input [REG_WIDTH-1 : 0] rs1_offset,
-  input [REG_WIDTH-1 : 0] rs2_offset,
-  input [REG_WIDTH-1 : 0] rd_offset,
-  input [WIDTH-1 : 0] rd_data_in,
-  output [WIDTH-1 : 0] rs1_data_out,
-  output [WIDTH-1 : 0] rs2_data_out);
-
-  parameter REG_WIDTH = 5;
-  parameter WIDTH = 32;
-  localparam REG_COUNT = 1 << REG_WIDTH;
-  reg [WIDTH-1 : 0] regs [0 : REG_COUNT-1];
-
-`ifdef IVERILOG
-
-  integer i;
-  initial begin
-
-  for (i = 0; i < REG_COUNT-1; i++) begin
-    regs[i] = 0;
-  end
-
-  end
-
-`endif
-
-  assign rs1_data_out = regs[rs1_offset];
-  assign rs2_data_out = regs[rs2_offset];
-
-  always @(posedge clk) begin
-    if (write_enable && (rd_offset != 0)) begin
-     regs[rd_offset] <= rd_data_in;
-    end
-  end
-
-endmodule
-
-module ram(
-  input rst,
-  input clk,
-  input write_enable,
-  input [ADDRESS_WIDTH-1 : 0] read_addr,
-  input [ADDRESS_WIDTH-1 : 0] write_addr,
-  input [WIDTH-1 : 0] data_in,
-  output [WIDTH-1 : 0] data_out,
-  output uart_tx_wire);
-
-  parameter ADDRESS_WIDTH = 12;
-  parameter WIDTH = 32;
-  localparam MEMORY_SIZE = 1 << (ADDRESS_WIDTH - 1);
-  localparam WORD_ALIGNMENT = $clog2(WIDTH / 8);
-  localparam ALIGNED_WIDTH = ADDRESS_WIDTH - WORD_ALIGNMENT;
-  localparam IO_START = MEMORY_SIZE >> WORD_ALIGNMENT;
-  // UART TX IO mapping
-  // [31 : 16] unused, [15:8] tx data, [7 : 2] unused [1] uart tx ready flag, [0] uart tx start
-  localparam UART_BASE = IO_START + 1;
-  reg [WIDTH-1 : 0] mem [0 : MEMORY_SIZE-1];
-  wire [ALIGNED_WIDTH-1 : 0] read_addr_aligned, write_addr_aligned;
-  reg uart_start;
-  reg [7 : 0] uart_tx_buffer;
-  wire uart_ready;
-
-  initial begin
-    uart_start = 0;
-    $readmemh("firmware.hex", mem);
-  end
-
-  uarttx tx(
-    .rst(rst),
-    .clk(clk),
-    .tx_start(uart_start),
-    .tx_byte(uart_tx_buffer),
-    .tx(uart_tx_wire),
-    .tx_ready(uart_ready));
-
-  assign read_addr_aligned = read_addr[ADDRESS_WIDTH-1 : WORD_ALIGNMENT];
-  assign write_addr_aligned = write_addr[ADDRESS_WIDTH-1 : WORD_ALIGNMENT];
-  assign data_out = (read_addr_aligned == UART_BASE) ?
-                    {16'b0, uart_tx_buffer, 6'b0, uart_ready, uart_start} : mem[read_addr_aligned];
-
-  always @(posedge clk) begin
-    if (write_enable) begin
-      if (write_addr_aligned == UART_BASE) begin
-        uart_start <= data_in[0];
-        uart_tx_buffer <= data_in[15 : 8];
-      end else begin
-        mem[write_addr_aligned] <= data_in;
-      end
-    end
-  end
-
-endmodule
-
-module alu(
-  input [WIDTH-1 : 0] a,
-  input [WIDTH - 1 : 0] b,
-  input sub_enable,
-  input arith_shift,
-  input [2 : 0] op,
-  input [SHIFT_WIDTH-1 : 0] shamt,
-  output [WIDTH - 1 : 0] res,
-  output eq,
-  output bgeu,
-  output bge);
-
-  parameter WIDTH = 32;
-
-  parameter ADD_OP = 3'b000;
-  parameter SLT_OP = 3'b010;
-  parameter SLTU_OP = 3'b011;
-  parameter XOR_OP = 3'b100;
-  parameter OR_OP = 3'b110;
-  parameter AND_OP = 3'b111;
-  parameter SL_OP = 3'b001;
-  parameter SR_OP = 3'b101;
-  localparam SHIFT_WIDTH = $clog2(WIDTH);
-
-  wire [WIDTH - 1 : 0] carry, b_in, adder;
-
-  assign b_in = sub_enable ? ~(b) : b;
-  assign eq = a == b;
-  assign bgeu = a >= b;
-  assign bge = $signed(a) >= $signed(b);
-
-  assign res = (op == ADD_OP) ? adder : (op == OR_OP) ? (a | b) : (op == XOR_OP) ? (a ^ b) :
-               (op == SL_OP) ? (a << shamt) : ((op == SR_OP) && (arith_shift)) ? (a >>> shamt) :
-               (op == SR_OP) ? (a >> shamt) : a & b;
-
-  genvar i;
-  generate
-    for (i = 0; i < WIDTH; i = i + 1) begin
-      if (i == 0) begin
-        assign adder[i] = (a[i] ^ b_in[i]) ^ sub_enable;
-        assign carry[i] = ((a[i] ^ b_in[i]) & sub_enable) | (a[i] & b_in[i]);
-      end else begin
-        assign adder[i] = (a[i] ^ b_in[i]) ^ carry[i-1];
-        assign carry[i] = ((a[i] ^ b_in[i]) & carry[i-1]) | (a[i] & b_in[i]);
-      end
-    end
-  endgenerate
-
-endmodule
+`include "regs.v"
+`include "alu.v"
+`include "mem.v"
 
 module cpu(
   input clk,
@@ -168,8 +25,10 @@ module cpu(
   localparam WIDTH = 32;
   localparam INSTR_WIDTH = WIDTH;
   localparam REG_COUNT = 32;
-  localparam RAM_WIDTH = 11;
+  localparam ADDRESS_WIDTH = 12;
+  localparam STACK_REG_IDX = 2;
   localparam PC_INC = $clog2(INSTR_WIDTH) - 1;
+  localparam STACK_START = (1 << (ADDRESS_WIDTH-1)) - PC_INC;
   localparam REG_WIDTH = $clog2(REG_COUNT);
   localparam OPCODE_START = 0;
   localparam OPCODE_END = 6;
@@ -256,7 +115,11 @@ module cpu(
   localparam STAGE_COUNT = STAGE_T4 + 1;
   localparam STAGE_WIDTH = $clog2(STAGE_COUNT);
 
-  localparam rst_size = 5;
+`ifdef IVERILOG
+  localparam rst_size = 3;
+`else
+  localparam rst_size = 6;
+`endif
   localparam rst_max = (1 << rst_size) - 1;
 
   reg [rst_size : 0] rst_cnt = 0;
@@ -272,7 +135,10 @@ module cpu(
   wire [WIDTH-1 : 0] regs_rs1_out, regs_rs2_out;
   registers #(
     .WIDTH(WIDTH),
-    .REG_WIDTH(REG_WIDTH)) cpu_regs (
+    .REG_WIDTH(REG_WIDTH),
+    .STACK_REG(STACK_REG_IDX),
+    .STACK_START(STACK_START)) cpu_regs (
+    .rst(!rstn),
     .clk(clk),
     .write_enable(regs_wr_enable),
     .rs1_offset(regs_rs1_offset),
@@ -309,13 +175,13 @@ module cpu(
     .bgeu(alu_bgeu),
     .bge(alu_bge));
 
-  reg ram_wr_enable;
-  reg [RAM_WIDTH-1 : 0] ram_rd_addr, ram_wr_addr;
+  reg ram_wr_enable = 0;
+  reg [ADDRESS_WIDTH-1 : 0] ram_rd_addr, ram_wr_addr;
   reg [WIDTH-1 : 0] ram_data_in;
   wire [WIDTH-1 : 0] ram_data_out;
   ram #(
     .WIDTH(WIDTH),
-    .ADDRESS_WIDTH(RAM_WIDTH)) cpu_ram(
+    .ADDRESS_WIDTH(ADDRESS_WIDTH)) cpu_ram(
     .rst(!rstn),
     .clk(clk),
     .write_enable(ram_wr_enable),
@@ -519,6 +385,9 @@ module cpu(
               stage_reg <= STAGE_T3;
             end
 
+            default: begin
+            end
+
           endcase
         end
 
@@ -601,6 +470,9 @@ module cpu(
               stage_reg <= STAGE_T0;
             end
 
+            default: begin
+            end
+
           endcase
         end
 
@@ -674,7 +546,6 @@ module cpu(
         end
 
         default: begin
-          stage_reg <= STAGE_COUNT;
         end
 
       endcase
