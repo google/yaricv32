@@ -38,7 +38,7 @@ module uarttx(
 
   parameter CLK_SPEED = 12000000; //Hz
 `ifdef IVERILOG
-  parameter BAUD_RATE = CLK_SPEED / 4;
+  parameter BAUD_RATE = CLK_SPEED / 4; //Divide clock by 4 for simulation
 `else
   parameter BAUD_RATE = 19200;
 `endif
