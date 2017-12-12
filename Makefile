@@ -1,3 +1,17 @@
+RISCV_TOOLS_PREFIX = riscv-toolchain/bin/riscv32-unknown-elf-
+RISCV_LIBS_PREFIX = riscv-toolchain/lib/gcc/riscv32-unknown-elf/7.2.0/
+CC = $(RISCV_TOOLS_PREFIX)gcc
+AS = $(RISCV_TOOLS_PREFIX)as
+LD = $(RISCV_TOOLS_PREFIX)ld
+OBJCOPY = $(RISCV_TOOLS_PREFIX)objcopy
+BIN32HEX = bin32hex.py
+MEMSIZE = 2048
+CCFLAGS = -c -Wall -fno-pic -fno-builtin -nostdlib -march=rv32i -mabi=ilp32 -O0\
+					-DMEMSIZE=$(MEMSIZE)
+ASFLAGS = -fno-pic -march=rv32i -mabi=ilp32
+LDFLAGS = -T firmware/firmware.ld
+OBJCOPYFLAGS = -O binary
+
 COMP = iverilog
 SIM = vvp
 SYN = yosys
@@ -5,8 +19,11 @@ PNR = arachne-pnr
 PACK = icepack
 PROG = iceprog
 
+COMP_FLAGS = -Wall -g2005
 PCF = top.pcf
 TESTS = top_test.vcd
+FIRMWARE_SRC = firmware/main.o
+FIRMWARE_CRT = firmware/start.o
 
 all: $(TESTS)
 
@@ -23,12 +40,27 @@ all: $(TESTS)
 	$(PACK) $< $@
 
 %.vvp: %.v
-	$(COMP) -Wall -g2005 -o $@ $<
+	$(COMP) $(COMP_FLAGS) -o $@ $<
 
 flash: cpu.bin
 	$(PROG) -S $<$
 
+%.hex: %.dump
+	./$(BIN32HEX) $< $@ $(MEMSIZE)
+
+%.dump: %.elf
+	$(OBJCOPY) $(OBJCOPYFLAGS) $< $@
+
+%.elf: $(FIRMWARE_CRT) $(FIRMWARE_SRC)
+	$(LD) $(LDFLAGS) -o $@ $^ $(RISCV_LIBS_PREFIX)libgcc.a
+
+%.o: %.c
+	$(CC) $(CCFLAGS) -o $@ $<
+
+$(FIRMWARE_CRT).o: %.s
+	$(AS) $(ASFLAGS) -o $@ $<
+
 clean:
-	rm -f *.vvp *.vcd *.blif *.bin *.txt
+	rm -f *.vvp *.vcd *.blif *.bin *.txt *.dump firmware/*.elf firmware/*.o
 
 .PHONY: clean
