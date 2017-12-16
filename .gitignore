@@ -1,0 +1,9 @@
+*.bin
+*.blif
+*.txt
+*.vcd
+*.vvp
+*.elf
+*.o
+*.swp
+riscv-toolchain*
