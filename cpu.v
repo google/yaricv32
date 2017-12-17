@@ -25,10 +25,12 @@ module cpu(
   localparam WIDTH = 32;
   localparam INSTR_WIDTH = WIDTH;
   localparam REG_COUNT = 32;
-  localparam ADDRESS_WIDTH = 12;
+  localparam ADDRESS_WIDTH = 14;
+  localparam IO_SPACE_WIDTH = 2; //MSB bits for memory mapped IO
   localparam STACK_REG_IDX = 2;
   localparam PC_INC = $clog2(INSTR_WIDTH) - 1;
-  localparam STACK_START = (1 << (ADDRESS_WIDTH-1)) - PC_INC;
+  localparam WORD_ALIGNMENT = $clog2(WIDTH / 8);
+  localparam STACK_START = ((1 << (ADDRESS_WIDTH - IO_SPACE_WIDTH - 1)) << WORD_ALIGNMENT) - PC_INC;
   localparam REG_WIDTH = $clog2(REG_COUNT);
   localparam OPCODE_START = 0;
   localparam OPCODE_END = 6;
@@ -181,7 +183,8 @@ module cpu(
   wire [WIDTH-1 : 0] ram_data_out;
   ram #(
     .WIDTH(WIDTH),
-    .ADDRESS_WIDTH(ADDRESS_WIDTH)) cpu_ram(
+    .ADDRESS_WIDTH(ADDRESS_WIDTH),
+    .IO_SPACE_WIDTH(IO_SPACE_WIDTH)) cpu_ram(
     .rst(!rstn),
     .clk(clk),
     .write_enable(ram_wr_enable),

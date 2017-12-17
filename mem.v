@@ -28,13 +28,15 @@ module ram(
 
   parameter ADDRESS_WIDTH = 12;
   parameter WIDTH = 32;
-  localparam MEMORY_SIZE = 1 << (ADDRESS_WIDTH - 1);
+  parameter IO_SPACE_WIDTH = 2; //MSB bits for memory mapped IO
+  localparam MEMORY_SIZE = 1 << (ADDRESS_WIDTH - IO_SPACE_WIDTH - 1);
   localparam WORD_ALIGNMENT = $clog2(WIDTH / 8);
   localparam ALIGNED_WIDTH = ADDRESS_WIDTH - WORD_ALIGNMENT;
-  localparam IO_START = MEMORY_SIZE >> WORD_ALIGNMENT;
+  localparam IO_START = MEMORY_SIZE << IO_SPACE_WIDTH;
+  localparam UART_OFFSET = 4;
   // UART TX IO mapping
   // [31 : 16] unused, [15:8] tx data, [7 : 2] unused [1] uart tx ready flag, [0] uart tx start
-  localparam UART_BASE = IO_START + 1;
+  localparam UART_BASE = IO_START + UART_OFFSET;
   reg [WIDTH-1 : 0] mem [0 : MEMORY_SIZE-1];
   wire [ALIGNED_WIDTH-1 : 0] read_addr_aligned, write_addr_aligned;
   reg uart_start;
@@ -55,7 +57,7 @@ module ram(
 
   assign read_addr_aligned = read_addr[ADDRESS_WIDTH-1 : WORD_ALIGNMENT];
   assign write_addr_aligned = write_addr[ADDRESS_WIDTH-1 : WORD_ALIGNMENT];
-  assign data_out = (read_addr_aligned == UART_BASE) ?
+  assign data_out = (read_addr == UART_BASE) ?
                     {16'b0, uart_tx_buffer, 6'b0, uart_ready, uart_start} : mem[read_addr_aligned];
 
   always @(posedge clk) begin
@@ -63,7 +65,7 @@ module ram(
       uart_start <= 0;
     end else begin
       if (write_enable) begin
-        if (write_addr_aligned == UART_BASE) begin
+        if (write_addr == UART_BASE) begin
           uart_start <= data_in[0];
           uart_tx_buffer <= data_in[15 : 8];
         end else begin

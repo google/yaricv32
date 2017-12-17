@@ -5,7 +5,8 @@ AS = $(RISCV_TOOLS_PREFIX)as
 LD = $(RISCV_TOOLS_PREFIX)ld
 OBJCOPY = $(RISCV_TOOLS_PREFIX)objcopy
 BIN32HEX = bin32hex.py
-MEMSIZE = 2048
+MEMSIZE = 8192
+MEMWORDCOUNT = $(shell echo $(MEMSIZE) / 4 | bc)
 CCFLAGS = -c -Wall -fno-pic -fno-builtin -nostdlib -march=rv32i -mabi=ilp32 -O0\
 					-DMEMSIZE=$(MEMSIZE)
 ASFLAGS = -fno-pic -march=rv32i -mabi=ilp32
@@ -46,7 +47,7 @@ flash: cpu.bin
 	$(PROG) -S $<$
 
 %.hex: %.dump
-	./$(BIN32HEX) $< $@ $(MEMSIZE)
+	./$(BIN32HEX) $< $@ $(MEMWORDCOUNT)
 
 %.dump: %.elf
 	$(OBJCOPY) $(OBJCOPYFLAGS) $< $@
@@ -61,6 +62,6 @@ $(FIRMWARE_CRT).o: %.s
 	$(AS) $(ASFLAGS) -o $@ $<
 
 clean:
-	rm -f *.vvp *.vcd *.blif *.bin *.txt *.dump firmware/*.elf firmware/*.o
+	rm -f *.vvp *.vcd *.blif *.bin *.txt *.dump *.elf firmware/*.elf firmware/*.o
 
 .PHONY: clean
