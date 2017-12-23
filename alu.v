@@ -38,7 +38,7 @@ module alu(
   parameter SR_OP = 3'b101;
   localparam SHIFT_WIDTH = $clog2(WIDTH);
 
-  wire [WIDTH - 1 : 0] carry, b_in, adder;
+  wire [WIDTH - 1 : 0] carry, b_in, adder, shra, shrl;
   wire slt, sltu;
 
   assign b_in = sub_enable ? ~(b) : b;
@@ -47,11 +47,12 @@ module alu(
   assign bge = $signed(a) >= $signed(b);
   assign slt = (!bge) ? 1 : 0;
   assign sltu = (!bgeu) ? 1 : 0;
+  assign shra = $signed(a) >>> shamt;
+  assign shrl = a >> shamt;
 
   assign res = (op == ADD_OP) ? adder : (op == OR_OP) ? (a | b) : (op == XOR_OP) ? (a ^ b) :
-               (op == SL_OP) ? (a << shamt) : ((op == SR_OP) && (arith_shift)) ? (a >>> shamt) :
-               (op == SR_OP) ? (a >> shamt) : (op == SLT_OP) ? slt : (op == SLTU_OP) ? sltu :
-               a & b;
+               (op == SL_OP) ? (a << shamt) : (op == SR_OP) ? (arith_shift ? shra : shrl) :
+               (op == SLT_OP) ? slt : (op == SLTU_OP) ? sltu : a & b;
 
   genvar i;
   generate
