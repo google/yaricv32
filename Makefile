@@ -1,32 +1,41 @@
-RISCV_TOOLS_PREFIX = riscv-toolchain/bin/riscv32-unknown-elf-
-RISCV_LIBS_PREFIX = riscv-toolchain/lib/gcc/riscv32-unknown-elf/7.2.0/
-CC = $(RISCV_TOOLS_PREFIX)gcc
-AS = $(RISCV_TOOLS_PREFIX)as
-LD = $(RISCV_TOOLS_PREFIX)ld
-OBJCOPY = $(RISCV_TOOLS_PREFIX)objcopy
-BIN32HEX = bin32hex.py
-MEMSIZE = 8192
-MEMWORDCOUNT = $(shell echo $(MEMSIZE) / 4 | bc)
-CCFLAGS = -c -Wall -fno-pic -fno-builtin -nostdlib -march=rv32i -mabi=ilp32 -O0\
-					-DMEMSIZE=$(MEMSIZE)
-ASFLAGS = -fno-pic -march=rv32i -mabi=ilp32
-LDFLAGS = -T firmware/firmware.ld
-OBJCOPYFLAGS = -O binary
-
 COMP = iverilog
 SIM = vvp
 SYN = yosys
 PNR = arachne-pnr
 PACK = icepack
 PROG = iceprog
+BIN32HEX = bin32hex.py
+RISCV_TOOLS_PREFIX = riscv-toolchain/bin/riscv32-unknown-elf-
+RISCV_GCC_LIB = riscv-toolchain/lib/gcc/riscv32-unknown-elf/7.2.0/libgcc.a
+CC = $(RISCV_TOOLS_PREFIX)gcc
+OBJCOPY = $(RISCV_TOOLS_PREFIX)objcopy
 
+RISCV_TESTS_DIR = riscv-tests/isa/rv32ui
+RISCV_TESTS_SRC = $(wildcard $(RISCV_TESTS_DIR)/*.S)
+RISCV_TESTS = $(basename $(RISCV_TESTS_SRC))
+RISCV_TESTS_ELF = $(addsuffix .elf,$(RISCV_TESTS))
+RISCV_TESTS_HEX = $(addsuffix .hex,$(RISCV_TESTS))
+RISCV_TEST_RESULT_OBJ = env/riscv_test_result.o
+RISCV_TEST_DEFINES = test_defines.v
+RISCV_TEST_INC = riscv-tests/isa/macros/scalar
+RISCV_TEST_LINK_SCRIPT = riscv-tests/env/p/link.ld
+RISCV_TEST_BENCH = riscv_test.v
+RISCV_TEST_SIM = riscv_test.vvp
+
+MEMSIZE = 8192
+MEMWORDCOUNT = $(shell echo $(MEMSIZE) / 4 | bc)
+OBJCOPYFLAGS = -O binary
+PUTC_OBJ = env/putc.o
+INC_DIR = env/inc
+CCFLAGS = -Wall -fno-pic -fno-builtin -nostdlib -march=rv32i -mabi=ilp32 -O0 -DMEMSIZE=$(MEMSIZE)
 COMP_FLAGS = -Wall -g2005
 PCF = top.pcf
-TESTS = top_test.vcd
-FIRMWARE_SRC = firmware/main.o
-FIRMWARE_CRT = firmware/start.o
+TOP_TEST = top_test.vcd
+FIRMWARE_NAME = firmware
+FIRMWARE_SRC = firmware/start.s firmware/main.o
+FIRMWWARE_LINK_SCRIPT = firmware/link.ld
 
-all: $(TESTS)
+all: $(TOP_TEST)
 
 %.vcd: %.vvp
 	$(SIM) $<
@@ -52,16 +61,30 @@ flash: cpu.bin
 %.dump: %.elf
 	$(OBJCOPY) $(OBJCOPYFLAGS) $< $@
 
-%.elf: $(FIRMWARE_CRT) $(FIRMWARE_SRC)
-	$(LD) $(LDFLAGS) -o $@ $^ $(RISCV_LIBS_PREFIX)libgcc.a
+riscv_tests: $(RISCV_TESTS_HEX)
+	$(foreach t, $(RISCV_TESTS), $(call run_test, $(t)))
+
+define run_test
+	$(file >$(RISCV_TEST_DEFINES),`define TEST_PROG "$(strip $(1)).hex")
+	$(file >>$(RISCV_TEST_DEFINES),`define TEST_NAME "$(basename $(notdir $(1)))")
+	$(shell $(COMP) $(COMP_FLAGS) -o $(RISCV_TEST_SIM) $(RISCV_TEST_BENCH))
+	@echo "$(shell $(SIM) $(RISCV_TEST_SIM))"
+endef
 
 %.o: %.c
-	$(CC) $(CCFLAGS) -o $@ $<
+	$(CC) $(CCFLAGS) -I$(INC_DIR) -c -o $@ $<
 
-$(FIRMWARE_CRT).o: %.s
-	$(AS) $(ASFLAGS) -o $@ $<
+%.elf: %.S | $(PUTC_OBJ) $(RISCV_TEST_RESULT_OBJ)
+	$(CC) $(CCFLAGS) -I$(INC_DIR) -I$(RISCV_TEST_INC) -T$(RISCV_TEST_LINK_SCRIPT) -o $@ $< \
+		$(RISCV_TEST_RESULT_OBJ) $(PUTC_OBJ)
+
+$(FIRMWARE_NAME).elf: $(FIRMWARE_SRC)
+	$(CC) $(CCFLAGS) -T$(FIRMWWARE_LINK_SCRIPT) -o $@ $^ $(RISCV_GCC_LIB)
 
 clean:
-	rm -f *.vvp *.vcd *.blif *.bin *.txt *.dump *.elf firmware/*.elf firmware/*.o
+	rm -f *.vvp *.vcd *.blif *.bin *.txt *.dump *.elf firmware/*.elf firmware/*.o \
+		$(RISCV_TEST_DEFINES) $(RISCV_TESTS_HEX)
 
-.PHONY: clean
+.SILENT:
+
+.PHONY: clean riscv_tests

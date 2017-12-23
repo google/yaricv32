@@ -15,7 +15,7 @@
  */
 
 `define IVERILOG
-`define TEST_PROG "firmware.hex"
+`include "test_defines.v"
 `include "top.v"
 
 module top_test;
@@ -30,22 +30,8 @@ module top_test;
   reg display = 0;
   reg [UART_WIDTH-1 : 0] serial_cnt = 0;
   reg [WIDTH-1 : 0] serial_data;
-  reg [WIDTH-1 : 0] expected_output [OUTPUT_CNT-1 : 0];
+  reg [WIDTH-1 : 0] expected_output = 80; //'P'
   wire uart_tx;
-
-  reg [WIDTH-1 : 0] i, j, k, l;
-  initial begin
-    j = 1;
-    k = 1;
-    l = 0;
-    for (i = 0; i < OUTPUT_CNT; i = i + 1) begin
-      expected_output[i] = k;
-      l = k;
-      k = k + j;
-      j = l;
-    end
-    i = 0;
-  end
 
   always #2 clk = !clk;
   always #8 uart_clk = !uart_clk; //For sim. UART TX clock gets divided by 4
@@ -55,8 +41,8 @@ module top_test;
     .uart_tx_line(uart_tx));
 
   initial begin
-    $dumpfile("top_test.vcd");
-    $dumpvars;
+    #9999 $display("Test timeout!\n");
+    #10000 $finish;
   end
 
   always @ (posedge uart_clk) begin
@@ -72,19 +58,14 @@ module top_test;
 
     end else if (display) begin
 
-      if (i >= OUTPUT_CNT) begin
-        $display("Fibonacci test passed, computed results match the expected output!\n");
+      if (serial_data == expected_output) begin
+        $display("%s\ttest pass\n", `TEST_NAME);
+        $finish;
+      end else begin
+        $display("%s\ttest failed!\n", `TEST_NAME);
         $finish;
       end
 
-      if (serial_data != expected_output[i]) begin
-        $display("Fibonacci test failed!\n");
-        $display("Serial output:%d doesn't match expected_output[%d]:%d\n",
-          serial_data, i, expected_output[i]);
-        $finish;
-      end
-
-      i <= i + 1;
       display <= 0;
 
     end else begin

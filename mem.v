@@ -44,7 +44,11 @@ module ram(
   wire uart_ready;
 
   initial begin
+`ifdef IVERILOG
+    $readmemh(`TEST_PROG, mem);
+`else
     $readmemh("firmware.hex", mem);
+`endif
   end
 
   uarttx tx(

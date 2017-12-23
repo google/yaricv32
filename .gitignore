@@ -7,3 +7,4 @@
 *.o
 *.swp
 riscv-toolchain*
+test_defines.v
