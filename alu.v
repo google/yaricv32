@@ -16,12 +16,12 @@
 
 module alu(
   input [WIDTH-1 : 0] a,
-  input [WIDTH - 1 : 0] b,
+  input [WIDTH-1 : 0] b,
   input sub_enable,
   input arith_shift,
   input [2 : 0] op,
   input [SHIFT_WIDTH-1 : 0] shamt,
-  output [WIDTH - 1 : 0] res,
+  output [WIDTH-1 : 0] res,
   output eq,
   output bgeu,
   output bge);

@@ -160,7 +160,7 @@ module cpu(
     .WIDTH(WIDTH),
     .ADD_OP(ADD_FUNCT3),
     .SLT_OP(SLT_FUNCT3),
-    .SLTU_OP(SLT_FUNCT3),
+    .SLTU_OP(SLTU_FUNCT3),
     .XOR_OP(XOR_FUNCT3),
     .OR_OP(OR_FUNCT3),
     .AND_OP(ADD_FUNCT3),
