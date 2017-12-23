@@ -23,12 +23,16 @@ module ram(
   input [ADDRESS_WIDTH-1 : 0] read_addr,
   input [ADDRESS_WIDTH-1 : 0] write_addr,
   input [WIDTH-1 : 0] data_in,
+  input [2:0] store_funct3,
   output [WIDTH-1 : 0] data_out,
   output uart_tx_wire);
 
   parameter ADDRESS_WIDTH = 12;
   parameter WIDTH = 32;
   parameter IO_SPACE_WIDTH = 2; //MSB bits for memory mapped IO
+  parameter SB_FUNCT3 = 3'b000;
+  parameter SH_FUNCT3 = 3'b001;
+  parameter SW_FUNCT3 = 3'b010;
   localparam MEMORY_SIZE = 1 << (ADDRESS_WIDTH - IO_SPACE_WIDTH - 1);
   localparam WORD_ALIGNMENT = $clog2(WIDTH / 8);
   localparam ALIGNED_WIDTH = ADDRESS_WIDTH - WORD_ALIGNMENT;
@@ -73,7 +77,55 @@ module ram(
           uart_start <= data_in[0];
           uart_tx_buffer <= data_in[15 : 8];
         end else begin
-          mem[write_addr_aligned] <= data_in;
+          case (store_funct3)
+
+            SW_FUNCT3: begin
+              mem[write_addr_aligned] <= data_in;
+            end
+
+            SB_FUNCT3: begin
+              case (write_addr[1:0])
+
+                2'b00: begin
+                  mem[write_addr_aligned] [7:0] <= data_in[7:0];
+                end
+
+                2'b01: begin
+                  mem[write_addr_aligned] [15:8] <= data_in[7:0];
+                end
+
+                2'b10: begin
+                  mem[write_addr_aligned] [23:16] <= data_in[7:0];
+                end
+
+                2'b11: begin
+                  mem[write_addr_aligned] [31:24] <= data_in[7:0];
+                end
+
+              endcase
+            end
+
+            SH_FUNCT3: begin
+              if (write_addr[1]) begin
+                mem[write_addr_aligned] [31:16] <= data_in[15:0];
+              end else begin
+                mem[write_addr_aligned] [15:0] <= data_in[15:0];
+              end
+
+              if (write_addr[0]) begin
+`ifdef IVERILOG
+                $display("Unaligned word write!\n");
+`endif
+              end
+            end
+
+            default: begin
+`ifdef IVERILOG
+              $display("Unsupported store funct3: %d!\n", store_funct3);
+`endif
+            end
+
+          endcase
         end
       end
     end

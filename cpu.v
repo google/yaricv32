@@ -131,6 +131,18 @@ module cpu(
   reg [STAGE_WIDTH-1 : 0] stage_reg;  //Keeps track of the current execution stage.
   reg [WIDTH-1 : 0] pc_reg;           //Program counter
 
+  wire [OPCODE_END : 0] opcode;
+  wire [FUNCT3_WIDTH : 0] funct3;
+  wire [REG_WIDTH-1 : 0] rd;
+  wire [REG_WIDTH-1 : 0] rs1;
+  wire [REG_WIDTH-1 : 0] rs2;
+  wire [WIDTH-1 : 0] itype_imm;
+  wire [WIDTH-1 : 0] stype_imm;
+  wire [WIDTH-1 : 0] utype_imm;
+  wire [WIDTH-1 : 0] jtype_imm;
+  wire [WIDTH-1 : 0] btype_imm;
+
+
   reg regs_wr_enable;
   reg [REG_WIDTH-1 : 0] regs_rs1_offset, regs_rs2_offset, regs_rd_offset;
   reg [WIDTH-1 : 0] regs_rd_in;
@@ -184,26 +196,19 @@ module cpu(
   ram #(
     .WIDTH(WIDTH),
     .ADDRESS_WIDTH(ADDRESS_WIDTH),
-    .IO_SPACE_WIDTH(IO_SPACE_WIDTH)) cpu_ram(
+    .IO_SPACE_WIDTH(IO_SPACE_WIDTH),
+    .SB_FUNCT3(SB_FUNCT3),
+    .SW_FUNCT3(SW_FUNCT3),
+    .SH_FUNCT3(SH_FUNCT3)) cpu_ram(
     .rst(!rstn),
     .clk(clk),
     .write_enable(ram_wr_enable),
     .read_addr(ram_rd_addr),
     .write_addr(ram_wr_addr),
     .data_in(ram_data_in),
+    .store_funct3(funct3),
     .data_out(ram_data_out),
     .uart_tx_wire(uart_tx_wire));
-
-  wire [OPCODE_END : 0] opcode;
-  wire [FUNCT3_WIDTH : 0] funct3;
-  wire [REG_WIDTH-1 : 0] rd;
-  wire [REG_WIDTH-1 : 0] rs1;
-  wire [REG_WIDTH-1 : 0] rs2;
-  wire [WIDTH-1 : 0] itype_imm;
-  wire [WIDTH-1 : 0] stype_imm;
-  wire [WIDTH-1 : 0] utype_imm;
-  wire [WIDTH-1 : 0] jtype_imm;
-  wire [WIDTH-1 : 0] btype_imm;
 
   always @(posedge clk) begin
     if (rst_cnt != rst_max) begin
@@ -494,19 +499,67 @@ module cpu(
                 end
 
                 LB_FUNCT3: begin
-                  regs_rd_in <= {{24{ram_data_out[7]}}, ram_data_out[7:0]};
+                  case (alu_res[1:0])
+
+                    2'b00: begin
+                      regs_rd_in <= {{24{ram_data_out[7]}}, ram_data_out[7:0]};
+                    end
+
+                    2'b01: begin
+                      regs_rd_in <= {{24{ram_data_out[15]}}, ram_data_out[15:8]};
+                    end
+
+                    2'b10: begin
+                      regs_rd_in <= {{24{ram_data_out[23]}}, ram_data_out[23:16]};
+                    end
+
+                    2'b11: begin
+                      regs_rd_in <= {{24{ram_data_out[31]}}, ram_data_out[31:24]};
+                    end
+
+                  endcase
                 end
 
                 LH_FUNCT3: begin
-                  regs_rd_in <= {{16{ram_data_out[15]}}, ram_data_out[15:0]};
+                  regs_rd_in <= alu_res[1] ? {{16{ram_data_out[31]}}, ram_data_out[31:16]} :
+                                             {{16{ram_data_out[15]}}, ram_data_out[15:0]};
+                  if (alu_res[0]) begin
+`ifdef IVERILOG
+                    $display("Unaligned word load !\n");
+`endif
+                  end
                 end
 
                 LBU_FUNCT3: begin
-                  regs_rd_in <= {24'b0, (ram_data_out[7:0])};
+                  case (alu_res[1:0])
+
+                    2'b00: begin
+                      regs_rd_in <= {24'b0, (ram_data_out[7:0])};
+                    end
+
+                    2'b01: begin
+                      regs_rd_in <= {24'b0, (ram_data_out[15:8])};
+                    end
+
+                    2'b10: begin
+                      regs_rd_in <= {24'b0, (ram_data_out[23:16])};
+                    end
+
+                    2'b11: begin
+                      regs_rd_in <= {24'b0, (ram_data_out[31:24])};
+                    end
+
+                  endcase
                 end
 
                 LHU_FUNCT3: begin
-                  regs_rd_in <= {16'b0, (ram_data_out[15:0])};
+                  regs_rd_in <= alu_res[1] ? {16'b0, (ram_data_out[31:16])} :
+                                             {16'b0, (ram_data_out[15:0])};
+                  if (alu_res[0]) begin
+`ifdef IVERILOG
+                    $display("Unaligned uword load !\n");
+`endif
+                  end
                 end
 
                 default: begin
