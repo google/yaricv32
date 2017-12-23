@@ -109,6 +109,9 @@ module cpu(
   localparam SUB_BIT = 30;
   localparam ARITH_SHIFT_BIT = 30;
 
+  //Fence instruction
+  localparam FENCE_OPCODE = 7'b0001111;
+
   localparam STAGE_T0 = 0;
   localparam STAGE_T1 = 1;
   localparam STAGE_T2 = 2;
@@ -141,7 +144,6 @@ module cpu(
   wire [WIDTH-1 : 0] utype_imm;
   wire [WIDTH-1 : 0] jtype_imm;
   wire [WIDTH-1 : 0] btype_imm;
-
 
   reg regs_wr_enable;
   reg [REG_WIDTH-1 : 0] regs_rs1_offset, regs_rs2_offset, regs_rd_offset;
@@ -254,6 +256,12 @@ module cpu(
 
         STAGE_T1: begin
           case (opcode)
+
+            FENCE_OPCODE: begin
+              pc_reg <= alu_res;
+              ram_rd_addr <= alu_res;
+              stage_reg <= STAGE_T0;
+            end
 
             ARITH_OPCODE: begin
               regs_rs1_offset <= rs1;
