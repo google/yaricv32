@@ -5,20 +5,20 @@ PNR = arachne-pnr
 PACK = icepack
 PROG = iceprog
 BIN32HEX = bin32hex.py
-RISCV_TOOLS_PREFIX = riscv-toolchain/bin/riscv32-unknown-elf-
-RISCV_GCC_LIB = riscv-toolchain/lib/gcc/riscv32-unknown-elf/7.2.0/libgcc.a
+RISCV_TOOLS_PREFIX = third_party/riscv-toolchain/bin/riscv32-unknown-elf-
+RISCV_GCC_LIB = third_party/riscv-toolchain/lib/gcc/riscv32-unknown-elf/7.2.0/libgcc.a
 CC = $(RISCV_TOOLS_PREFIX)gcc
 OBJCOPY = $(RISCV_TOOLS_PREFIX)objcopy
 
-RISCV_TESTS_DIR = riscv-tests/isa/rv32ui
+RISCV_TESTS_DIR = third_party/riscv-tests/isa/rv32ui
 RISCV_TESTS_SRC = $(wildcard $(RISCV_TESTS_DIR)/*.S)
 RISCV_TESTS = $(basename $(RISCV_TESTS_SRC))
 RISCV_TESTS_ELF = $(addsuffix .elf,$(RISCV_TESTS))
 RISCV_TESTS_HEX = $(addsuffix .hex,$(RISCV_TESTS))
 RISCV_TEST_RESULT_OBJ = env/riscv_test_result.o
 RISCV_TEST_DEFINES = test_defines.v
-RISCV_TEST_INC = riscv-tests/isa/macros/scalar
-RISCV_TEST_LINK_SCRIPT = riscv-tests/env/p/link.ld
+RISCV_TEST_INC = third_party/riscv-tests/isa/macros/scalar
+RISCV_TEST_LINK_SCRIPT = third_party/riscv-tests/env/p/link.ld
 RISCV_TEST_BENCH = riscv_test.v
 RISCV_TEST_SIM = riscv_test.vvp
 

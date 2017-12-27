@@ -36,13 +36,8 @@ gtkwave top_test.vcd
 ```
 
 ## Firmware and tests build prerequisites
-The repository containing the tests can be cloned using:
-
-```
-git submodule update --init --recursive
-```
-
-Building the tests and firmware requires the RISC-V cross toolchain, which can be compiled using the included build script:
+The repository containing the tests can be cloned along with the cross toolchain using the included
+build script:
 
 ```
 ./build-toolchain.sh
@@ -78,7 +73,8 @@ ACTION=="add", ATTR{idVendor}=="0403", ATTR{idProduct}=="6010", MODE:="666"
 
 ## FPGA synthesis and flashing
 
-Make sure that the breakout board is connected to the host PC.
+Make sure that the breakout board is connected to the host PC and configured for SRAM
+programming.
 Flashing the bitstream on the FPGA can be done by invoking:
 
 ```

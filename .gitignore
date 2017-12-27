@@ -6,5 +6,5 @@
 *.elf
 *.o
 *.swp
-riscv-toolchain*
 test_defines.v
+third_party/riscv-toolchain
