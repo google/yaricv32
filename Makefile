@@ -30,29 +30,31 @@ INC_DIR = env/inc
 CCFLAGS = -Wall -fno-pic -fno-builtin -nostdlib -march=rv32i -mabi=ilp32 -O0 -DMEMSIZE=$(MEMSIZE)
 COMP_FLAGS = -Wall -g2005
 PCF = top.pcf
-TOP_TEST = top_test.vcd
+CORE = cpu
+CORE_DEP = $(CORE).v alu.v mem.v regs.v uart-tx.v
+TOP_TEST = top_test
 FIRMWARE_NAME = firmware
 FIRMWARE_SRC = firmware/start.s firmware/main.o
 FIRMWWARE_LINK_SCRIPT = firmware/link.ld
 
-all: $(TOP_TEST)
+all: $(TOP_TEST).vcd
 
-%.vcd: %.vvp
-	$(SIM) $<
+$(CORE).blif: $(CORE_DEP) $(FIRMWARE_NAME).hex
+	$(SYN) -q -p "synth_ice40 -blif $@" $(CORE).v
 
-%.blif: %.v
-	$(SYN) -q -p "synth_ice40 -blif $@" $<
-
-%.txt: %.blif
+%.txt: %.blif $(PCF)
 	$(PNR) -d 8k -p $(PCF) -o $@ $<
 
 %.bin: %.txt
 	$(PACK) $< $@
 
-%.vvp: %.v
-	$(COMP) $(COMP_FLAGS) -o $@ $<
+$(TOP_TEST).vcd: $(TOP_TEST).vvp $(FIRMWARE_NAME).hex
+	$(SIM) $<
 
-flash: cpu.bin
+$(TOP_TEST).vvp: $(TOP_TEST).v $(CORE_DEP)
+	$(COMP) $(COMP_FLAGS) -o $@ $(TOP_TEST).v
+
+flash: $(CORE).bin
 	$(PROG) -S $<$
 
 %.hex: %.dump
